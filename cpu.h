@@ -6,7 +6,7 @@
 #include "register_set.h"
 #include "instruction_set.h"
 
-namespace gbhd {
+namespace colorboy {
 
     // Represents the GameBoy's cpu.
     class cpu {

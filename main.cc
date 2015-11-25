@@ -2,7 +2,7 @@
 #include "mmu.h"
 
 int main(int argc, char** argv) {
-    using namespace gbhd;
+    using namespace colorboy;
 
     cpu cpu;
     mmu mmu;

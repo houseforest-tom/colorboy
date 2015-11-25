@@ -3,7 +3,7 @@
 
 #include "util.h"
 
-namespace gbhd{
+namespace colorboy {
     
     // Interface for memory access.
     template<typename address_type, uint64_t size>

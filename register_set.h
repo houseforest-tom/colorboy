@@ -3,7 +3,7 @@
 
 #include "util.h"
 
-namespace gbhd{
+namespace colorboy {
     
     // Contains all of the Z80's registers.
     class register_set{

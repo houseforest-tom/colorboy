@@ -3,7 +3,7 @@
 
 #include "util.h"
 
-namespace gbhd {
+namespace colorboy {
 
     // Forward declare cpu class.
     class cpu;

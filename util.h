@@ -26,7 +26,7 @@
 #define ISET_SIZE   512
 #define DIVIDABLE(num, denom) (!(num % denom))
 
-namespace gbhd {
+namespace colorboy {
     using namespace std;
 
     typedef uint8_t byte;  // 8-bit.

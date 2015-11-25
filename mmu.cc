@@ -1,6 +1,6 @@
 #include "mmu.h"
 
-namespace gbhd{
+namespace colorboy {
     
     byte mmu::read8(word addr){
         return m_mem[addr];

@@ -38,7 +38,7 @@
     cpu.clk = 3; \
 }
 
-namespace gbhd {
+namespace colorboy {
 
     cpu::cpu(void) {
         initInstructionSet();
