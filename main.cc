@@ -1,15 +1,25 @@
+#include <random>
 #include "cpu.h"
 #include "mmu.h"
+
+using rng = std::mt19937_64;
 
 int main(int argc, char** argv) {
     using namespace colorboy;
 
+    // Initialize hardware components.
     cpu cpu;
     mmu mmu;
 
-    // Example binary.
+    // Setup RNG.
+    rng rng;
+    rng.seed(util::timing::currentTime().time_since_epoch().count());
+
+    // Create test binary.
     byte binary[0xff];
-    memset(binary, 0x00, sizeof(binary));
+    for(size_t offset=0;offset<sizeof(binary);++offset){
+        binary[offset] = rng() % 64;
+    }
 
     cpu.dumpstate();
 

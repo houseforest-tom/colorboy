@@ -9,7 +9,7 @@ namespace colorboy {
     class cpu;
 
     // Operation to be executed by the cpu.
-    using cpu_operation = function<void (cpu&, mmu&)>;
+    using cpu_operation = void(*)(cpu&, mmu&);
 
     class instruction {
     public:

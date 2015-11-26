@@ -7,7 +7,7 @@ namespace colorboy {
     }
 
     word mmu::read16(word addr){
-        return concat(m_mem[addr], m_mem[addr + 1]);
+        return util::lowlevel::concat(m_mem[addr], m_mem[addr + 1]);
     }
 
     void mmu::write8(word addr, byte value){

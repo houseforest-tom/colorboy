@@ -1,41 +1,64 @@
 #include "cpu.h"
 
+// Hexstring conversion macro.
+#define hx(arg) (util::lowlevel::hex((arg)))
+
+// Byte concatenation macro.
+#define cc(hi, lo) (util::lowlevel::concat((hi), (lo)))
+
+// Shortcut for h- & l register concatenation.
+#define hl(cpu) (cc((cpu).regs.h, (cpu).regs.l))
+
 // Register -> register.
-#define LDrr(destination, source) \
-[](cpu &cpu, mmu &mmu){ \
+#define LDrr(destination, source)           \
+[ ](cpu &cpu, mmu &mmu) {                   \
     cpu.regs.destination = cpu.regs.source; \
-    cpu.clk = 1; \
+    cpu.clk = 1;                            \
 }
 
 // Memory -> register.
-#define LDrm(destination, hi, lo) \
-[](cpu &cpu, mmu &mmu){ \
-    cpu.regs.destination = mmu.read8(concat(cpu.regs.h, cpu.regs.l)); \
-    cpu.clk = 2; \
+#define LDrm(destination, hi, lo)                                   \
+[ ](cpu &cpu, mmu &mmu) {                                           \
+    cpu.regs.destination = mmu.read8(cc(cpu.regs.hi, cpu.regs.lo)); \
+    cpu.clk = 2;                                                    \
 }
 
 // Register -> memory.
-#define LDmr(hi, lo, source) \
-[](cpu &cpu, mmu &mmu){ \
-    mmu.write8(concat(cpu.regs.h, cpu.regs.l), cpu.regs.source); \
-    cpu.clk = 2; \
+#define LDmr(hi, lo, source)                                    \
+[ ](cpu &cpu, mmu &mmu) {                                       \
+    mmu.write8(cc(cpu.regs.hi, cpu.regs.lo), cpu.regs.source);  \
+    cpu.clk = 2;                                                \
 }
 
-// Constant address -> register.
-#define LDrn(destination) \
-[](cpu &cpu, mmu &mmu){ \
-    cpu.regs.destination = mmu.read8(cpu.regs.pc++); \
-    cpu.clk = 2; \
+// Program counter pointed memory -> register.
+#define LDrn(destination)                               \
+[ ](cpu &cpu, mmu &mmu) {                               \
+    cpu.regs.destination = mmu.read8(cpu.regs.pc++);    \
+    cpu.clk = 2;                                        \
 }
 
-// Memory -> memory.
-#define LDmm(destination_hi, destination_lo) \
-[](cpu &cpu, mmu &mmu){ \
-    mmu.write8( \
-        concat(cpu.regs.hi, cpu.regs.lo), \
-        mmu.read8(concat(cpu.regs.h, cpu.regs.l)) \
-    ); \
-    cpu.clk = 3; \
+#define SWAPr(reg)                  \
+[ ](cpu& cpu, mmu& mmu) {           \
+    auto hl = hl(cpu);              \
+    auto value = cpu.regs.reg;      \
+    cpu.regs.reg = mmu.read8(hl);   \
+    mmu.write8(hl, value);          \
+    cpu.clk = 4;                    \
+}
+
+#define ADDr(reg)                       \
+[ ](cpu& cpu, mmu& mmu) {               \
+    word sum = cpu.regs.a + cpu.regs.b; \
+    cpu.regs.a = sum & 0xff;            \
+                                        \
+    /* Clear flags. */                  \
+    cpu.regs.f = 0x00;                  \
+    if(!sum)                            \
+        cpu.regs.f |= 0x80;             \
+    if(sum > 0xff)                      \
+        cpu.regs.f |= 0x10;             \
+                                        \
+    cpu.clk = 1;                        \
 }
 
 namespace colorboy {
@@ -47,6 +70,9 @@ namespace colorboy {
     void cpu::initInstructionSet(void) {
 
         word opcode = 0x0000;
+
+        // NOOP
+        iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) { ; });
 
         /* Load registers with values from another register. */
 
@@ -140,19 +166,19 @@ namespace colorboy {
 
         // LDHLmn
         iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
-            mmu.write8(concat(cpu.regs.h, cpu.regs.l), mmu.read8(cpu.regs.pc++));
+            mmu.write8(hl(cpu), mmu.read8(cpu.regs.pc++));
             cpu.clk = 3;
         });
 
         // LDBCmA
         iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
-            mmu.write8(concat(cpu.regs.b, cpu.regs.c), mmu.read8(cpu.regs.a));
+            mmu.write8(cc(cpu.regs.b, cpu.regs.c), mmu.read8(cpu.regs.a));
             cpu.clk = 2;
         });
 
         // LDDEmA
         iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
-            mmu.write8(concat(cpu.regs.d, cpu.regs.e), mmu.read8(cpu.regs.a));
+            mmu.write8(cc(cpu.regs.d, cpu.regs.e), mmu.read8(cpu.regs.a));
             cpu.clk = 2;
         });
 
@@ -165,13 +191,13 @@ namespace colorboy {
 
         // LDABCm
         iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
-            cpu.regs.a = mmu.read8(concat(cpu.regs.b, cpu.regs.c));
+            cpu.regs.a = mmu.read8(cc(cpu.regs.b, cpu.regs.c));
             cpu.clk = 2;
         });
 
         // LDADEm
         iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
-            cpu.regs.a = mmu.read8(concat(cpu.regs.d, cpu.regs.e));
+            cpu.regs.a = mmu.read8(cc(cpu.regs.d, cpu.regs.e));
             cpu.clk = 2;
         });
 
@@ -223,13 +249,13 @@ namespace colorboy {
         iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
             word value = mmu.read16(cpu.regs.pc);
             cpu.regs.pc += 2;
-            mmu.write16(value, concat(cpu.regs.h, cpu.regs.l));
+            mmu.write16(value, hl(cpu));
             cpu.clk = 5;
         });
 
         // LDHLIA
         iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
-            mmu.write8(concat(cpu.regs.h, cpu.regs.l), cpu.regs.a);
+            mmu.write8(hl(cpu), cpu.regs.a);
             cpu.regs.l += 1;
             if (!cpu.regs.l) { cpu.regs.h += 1; }
             cpu.clk = 2;
@@ -237,38 +263,87 @@ namespace colorboy {
 
         // LDAHLI
         iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
-            cpu.regs.a = mmu.read8(concat(cpu.regs.h, cpu.regs.l));
+            cpu.regs.a = mmu.read8(hl(cpu));
             cpu.regs.l += 1;
             if (!cpu.regs.l) { cpu.regs.h += 1; }
             cpu.clk = 2;
         });
 
+        // LDHLDA
+        iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
+            mmu.write8(hl(cpu), cpu.regs.a);
+            if (--cpu.regs.l == 0xff) {
+                --cpu.regs.h;
+            }
+            cpu.clk = 2;
+        });
+
+        // LDAHLD
+        iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
+            cpu.regs.a = mmu.read8(hl(cpu));
+            if (--cpu.regs.l == 0xff) {
+                --cpu.regs.h;
+            }
+            cpu.clk = 2;
+        });
+
+        // LDAIOn
+        iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
+            cpu.regs.a = mmu.read8(0xFF00 + mmu.read8(cpu.regs.pc++));
+            cpu.clk = 3;
+        });
+
+        // LDIOnA
+        iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
+            mmu.write8(0xFF00 + mmu.read8(cpu.regs.pc++), cpu.regs.a);
+            cpu.clk = 3;
+        });
+
+        // LDAIOC
+        iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
+            cpu.regs.a = mmu.read8(0xFF00 + cpu.regs.c);
+            cpu.clk = 2;
+        });
+
+        // LDIOCA
+        iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
+            mmu.write8(0xFF00 + cpu.regs.c, cpu.regs.a);
+            cpu.clk = 2;
+        });
+
+        // LDHLSPn
+        iset.store(opcode++, [ ](cpu& cpu, mmu& mmu) {
+            word value = (word)mmu.read8(cpu.regs.pc++);
+            if (value >= 0x8f) {
+                value = -(~value + 1) & 0xff;
+            }
+            value += cpu.regs.sp;
+            cpu.regs.h = (value >> 8) & 0xff;
+            cpu.regs.l = value & 0xff;
+            cpu.clk = 3;
+        });
+
+        /* Swap operations. */
+
+        iset.store(opcode++, SWAPr(b));
+        iset.store(opcode++, SWAPr(c));
+        iset.store(opcode++, SWAPr(d));
+        iset.store(opcode++, SWAPr(e));
+        iset.store(opcode++, SWAPr(h));
+        iset.store(opcode++, SWAPr(l));
+        iset.store(opcode++, SWAPr(a));
+
+        /* Add operations */
+
+        iset.store(opcode++, ADDr(b));
+        iset.store(opcode++, ADDr(c));
+        iset.store(opcode++, ADDr(d));
+        iset.store(opcode++, ADDr(e));
+        iset.store(opcode++, ADDr(h));
+        iset.store(opcode++, ADDr(l));
+        iset.store(opcode++, ADDr(a));
+
         /*
-        LDHLDA: function() { MMU.wb((Z80._r.h<<8)+Z80._r.l, Z80._r.a); Z80._r.l=(Z80._r.l-1)&255; if(Z80._r.l==255) Z80._r.h=(Z80._r.h-1)&255; Z80._r.m=2; Z80._r.t=8; },
-        LDAHLD: function() { Z80._r.a=MMU.rb((Z80._r.h<<8)+Z80._r.l); Z80._r.l=(Z80._r.l-1)&255; if(Z80._r.l==255) Z80._r.h=(Z80._r.h-1)&255; Z80._r.m=2; Z80._r.t=8; },
-
-        LDAIOn: function() { Z80._r.a=MMU.rb(0xFF00+MMU.rb(Z80._r.pc)); Z80._r.pc++; Z80._r.m=3; Z80._r.t=12; },
-        LDIOnA: function() { MMU.wb(0xFF00+MMU.rb(Z80._r.pc),Z80._r.a); Z80._r.pc++; Z80._r.m=3; Z80._r.t=12; },
-        LDAIOC: function() { Z80._r.a=MMU.rb(0xFF00+Z80._r.c); Z80._r.m=2; Z80._r.t=8; },
-        LDIOCA: function() { MMU.wb(0xFF00+Z80._r.c,Z80._r.a); Z80._r.m=2; Z80._r.t=8; },
-
-        LDHLSPn: function() { var i=MMU.rb(Z80._r.pc); if(i>127) i=-((~i+1)&255); Z80._r.pc++; i+=Z80._r.sp; Z80._r.h=(i>>8)&255; Z80._r.l=i&255; Z80._r.m=3; Z80._r.t=12; },
-
-        SWAPr_b: function() { var tr=Z80._r.b; Z80._r.b=MMU.rb((Z80._r.h<<8)+Z80._r.l); MMU.wb((Z80._r.h<<8)+Z80._r.l,tr); Z80._r.m=4; Z80._r.t=16; },
-        SWAPr_c: function() { var tr=Z80._r.c; Z80._r.c=MMU.rb((Z80._r.h<<8)+Z80._r.l); MMU.wb((Z80._r.h<<8)+Z80._r.l,tr); Z80._r.m=4; Z80._r.t=16; },
-        SWAPr_d: function() { var tr=Z80._r.d; Z80._r.d=MMU.rb((Z80._r.h<<8)+Z80._r.l); MMU.wb((Z80._r.h<<8)+Z80._r.l,tr); Z80._r.m=4; Z80._r.t=16; },
-        SWAPr_e: function() { var tr=Z80._r.e; Z80._r.e=MMU.rb((Z80._r.h<<8)+Z80._r.l); MMU.wb((Z80._r.h<<8)+Z80._r.l,tr); Z80._r.m=4; Z80._r.t=16; },
-        SWAPr_h: function() { var tr=Z80._r.h; Z80._r.h=MMU.rb((Z80._r.h<<8)+Z80._r.l); MMU.wb((Z80._r.h<<8)+Z80._r.l,tr); Z80._r.m=4; Z80._r.t=16; },
-        SWAPr_l: function() { var tr=Z80._r.l; Z80._r.l=MMU.rb((Z80._r.h<<8)+Z80._r.l); MMU.wb((Z80._r.h<<8)+Z80._r.l,tr); Z80._r.m=4; Z80._r.t=16; },
-        SWAPr_a: function() { var tr=Z80._r.a; Z80._r.a=MMU.rb((Z80._r.h<<8)+Z80._r.l); MMU.wb((Z80._r.h<<8)+Z80._r.l,tr); Z80._r.m=4; Z80._r.t=16; },
-
-        ADDr_b: function() { Z80._r.a+=Z80._r.b; Z80._ops.fz(Z80._r.a); if(Z80._r.a>255) Z80._r.f|=0x10; Z80._r.a&=255; Z80._r.m=1; Z80._r.t=4; },
-        ADDr_c: function() { Z80._r.a+=Z80._r.c; Z80._ops.fz(Z80._r.a); if(Z80._r.a>255) Z80._r.f|=0x10; Z80._r.a&=255; Z80._r.m=1; Z80._r.t=4; },
-        ADDr_d: function() { Z80._r.a+=Z80._r.d; Z80._ops.fz(Z80._r.a); if(Z80._r.a>255) Z80._r.f|=0x10; Z80._r.a&=255; Z80._r.m=1; Z80._r.t=4; },
-        ADDr_e: function() { Z80._r.a+=Z80._r.e; Z80._ops.fz(Z80._r.a); if(Z80._r.a>255) Z80._r.f|=0x10; Z80._r.a&=255; Z80._r.m=1; Z80._r.t=4; },
-        ADDr_h: function() { Z80._r.a+=Z80._r.h; Z80._ops.fz(Z80._r.a); if(Z80._r.a>255) Z80._r.f|=0x10; Z80._r.a&=255; Z80._r.m=1; Z80._r.t=4; },
-        ADDr_l: function() { Z80._r.a+=Z80._r.l; Z80._ops.fz(Z80._r.a); if(Z80._r.a>255) Z80._r.f|=0x10; Z80._r.a&=255; Z80._r.m=1; Z80._r.t=4; },
-        ADDr_a: function() { Z80._r.a+=Z80._r.a; Z80._ops.fz(Z80._r.a); if(Z80._r.a>255) Z80._r.f|=0x10; Z80._r.a&=255; Z80._r.m=1; Z80._r.t=4; },
         ADDHL: function() { Z80._r.a+=MMU.rb((Z80._r.h<<8)+Z80._r.l); Z80._ops.fz(Z80._r.a); if(Z80._r.a>255) Z80._r.f|=0x10; Z80._r.a&=255; Z80._r.m=2; Z80._r.t=8; },
         ADDn: function() { Z80._r.a+=MMU.rb(Z80._r.pc); Z80._r.pc++; Z80._ops.fz(Z80._r.a); if(Z80._r.a>255) Z80._r.f|=0x10; Z80._r.a&=255; Z80._r.m=2; Z80._r.t=8; },
         ADDHLBC: function() { var hl=(Z80._r.h<<8)+Z80._r.l; hl+=(Z80._r.b<<8)+Z80._r.c; if(hl>65535) Z80._r.f|=0x10; else Z80._r.f&=0xEF; Z80._r.h=(hl>>8)&255; Z80._r.l=hl&255; Z80._r.m=3; Z80._r.t=12; },
@@ -590,14 +665,14 @@ namespace colorboy {
         cout << "###################################################" << endl;
         cout << "# CPU State:" << "                                      #" << endl;
         cout << "#                                                 #" << endl;
-        cout << "# b: " << hex(regs.b) << " c: " << hex(regs.c) << " d: " << hex(regs.d)
-        << " e: " << hex(regs.e) << " h: " << hex(regs.h) << " l: " << hex(regs.l)
-        << " #" << endl;
-        cout << "# a: " << hex(regs.a) << " f: " << hex(regs.f) << "                                 #" << endl;
+        cout << "# b: " << hx(regs.b) << " c: " << hx(regs.c) << " d: " << hx(regs.d)
+        << " e: " << hx(regs.e) << " h: " << hx(regs.h) << " l: " << hx(regs.l) << " #" << endl;
+        cout << "# a: " << hx(regs.a) << " f: " << hx(regs.f) << "                                 #" << endl;
         cout << "#                                                 #" << endl;
-        cout << "# pc: " << hex(regs.pc) << " sp: " << hex(regs.sp) << "                           #" << endl;
+        cout << "# pc: " << hx(regs.pc) << " sp: " << hx(regs.sp) << "                           #" << endl;
         cout << "#                                                 #" << endl;
         cout << "# clk: " << clk << "                                          #" << endl;
         cout << "###################################################" << endl << endl;
     }
+
 }
